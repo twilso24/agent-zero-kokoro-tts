@@ -1,37 +1,134 @@
 <html>
 <head>
   <title>Kokoro TTS</title>
+  <script type="module" src="/plugins/_kokoro_tts/webui/kokoro-config-store.js"></script>
 </head>
 
 <body>
   <div x-data>
-    <template x-if="config">
-      <div class="plugin-config-page">
-        <div class="section-title">Kokoro TTS</div>
-        <div class="section-description">
-          Configure the built-in Kokoro voice provider. When this plugin is disabled,
-          spoken output falls back to the browser speech API.
-        </div>
+    <template x-if="$store.kokoroBlend">
+      <div x-init="$store.kokoroBlend.onOpen(config)" x-destroy="$store.kokoroBlend.cleanup()">
+        <template x-if="config">
+          <div class="plugin-config-page">
+            <div class="section-title">Kokoro TTS</div>
+            <div class="section-description">
+              Configure the built-in Kokoro voice provider. Choose a single voice, blend up to 3 voices,
+              or enter a manual voice string.
+            </div>
 
-        <div class="field">
-          <div class="field-label">
-            <div class="field-title">Voice</div>
-            <div class="field-description">Kokoro voice identifier passed to the backend pipeline.</div>
-          </div>
-          <div class="field-control">
-            <input type="text" x-model="config.voice" />
-          </div>
-        </div>
+            <!-- Mode toggle -->
+            <div class="field">
+              <div class="field-label">
+                <div class="field-title">Mode</div>
+                <div class="field-description">Single voice, blend multiple voices, or manual entry.</div>
+              </div>
+              <div class="field-control">
+                <select x-model="$store.kokoroBlend.mode" @change="$store.kokoroBlend.applyMode(config)">
+                  <option value="single">Single Voice</option>
+                  <option value="blend">Blend Voices</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </div>
+            </div>
 
-        <div class="field">
-          <div class="field-label">
-            <div class="field-title">Speed</div>
-            <div class="field-description">Playback speed multiplier for Kokoro synthesis.</div>
+            <!-- Single voice dropdown -->
+            <template x-if="$store.kokoroBlend.mode === 'single'">
+              <div class="field">
+                <div class="field-label">
+                  <div class="field-title">Voice</div>
+                  <div class="field-description">Select a Kokoro voice for synthesis.</div>
+                </div>
+                <div class="field-control">
+                  <select x-model="config.voice">
+                    <template x-for="group in $store.kokoroBlend.groups" :key="group.group">
+                      <optgroup :label="group.group">
+                        <template x-for="v in group.voices" :key="v">
+                          <option :value="v" x-text="v"></option>
+                        </template>
+                      </optgroup>
+                    </template>
+                  </select>
+                </div>
+              </div>
+            </template>
+
+            <!-- Blend voices -->
+            <template x-if="$store.kokoroBlend.mode === 'blend'">
+              <div>
+                <div class="field">
+                  <div class="field-label">
+                    <div class="field-title">Blend Voices</div>
+                    <div class="field-description">Mix up to 3 voices. Weights should sum to 1.0 for best results.</div>
+                  </div>
+                </div>
+                <template x-for="(slot, i) in $store.kokoroBlend.slots" :key="'slot-'+i">
+                  <div class="field" style="display: flex; gap: 8px; align-items: center;">
+                    <div style="width: 90px; display: flex; align-items: center; gap: 6px;">
+                      <input type="checkbox"
+                        :checked="$store.kokoroBlend.slots[i].enabled"
+                        @change="$store.kokoroBlend.toggleSlot(i, $event.target.checked, config)"
+                        x-show="i > 0">
+                      <span x-text="'Voice ' + (i + 1)"></span>
+                    </div>
+                    <div style="flex: 1;">
+                      <select
+                        :value="$store.kokoroBlend.slots[i].voice"
+                        @change="$store.kokoroBlend.setSlotVoice(i, $event.target.value, config)"
+                        :disabled="!$store.kokoroBlend.slots[i].enabled">
+                        <option value="" disabled>Select voice...</option>
+                        <template x-for="group in $store.kokoroBlend.groups" :key="group.group">
+                          <optgroup :label="group.group">
+                            <template x-for="v in group.voices" :key="v">
+                              <option :value="v" x-text="v"></option>
+                            </template>
+                          </optgroup>
+                        </template>
+                      </select>
+                    </div>
+                    <div style="width: 90px;">
+                      <input type="number" min="0" max="1" step="0.05"
+                        :value="$store.kokoroBlend.slots[i].weight"
+                        @input="$store.kokoroBlend.setSlotWeight(i, $event.target.value, config)"
+                        :disabled="!$store.kokoroBlend.slots[i].enabled"
+                        placeholder="Weight" style="width: 80px;">
+                    </div>
+                  </div>
+                </template>
+                <div style="margin-top: 6px; font-size: 12px; opacity: 0.7;"
+                     x-text="$store.kokoroBlend.blendStatus"></div>
+              </div>
+            </template>
+
+            <!-- Manual voice string -->
+            <template x-if="$store.kokoroBlend.mode === 'manual'">
+              <div class="field">
+                <div class="field-label">
+                  <div class="field-title">Voice String</div>
+                  <div class="field-description">Comma-separated voice names for Kokoro (e.g. af_bella,bf_emma).</div>
+                </div>
+                <div class="field-control">
+                  <input type="text" x-model="config.voice" />
+                </div>
+              </div>
+            </template>
+
+            <!-- Speed -->
+            <div class="field">
+              <div class="field-label">
+                <div class="field-title">Speed</div>
+                <div class="field-description">Playback speed multiplier for Kokoro synthesis.</div>
+              </div>
+              <div class="field-control">
+                <input type="number" min="0.1" step="0.1" x-model.number="config.speed" />
+              </div>
+            </div>
+
+            <!-- Status -->
+            <div x-show="config.voice" style="margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 12px; opacity: 0.8; background: var(--color-surface, #1a1a1a); border: 1px solid var(--color-border, #333);">
+              <strong>Current voice:</strong> <span x-text="config.voice"></span>
+            </div>
           </div>
-          <div class="field-control">
-            <input type="number" min="0.1" step="0.1" x-model.number="config.speed" />
-          </div>
-        </div>
+        </template>
       </div>
     </template>
   </div>

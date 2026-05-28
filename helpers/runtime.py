@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 PLUGIN_NAME = "_kokoro_tts"
 DEFAULT_CONFIG = {
-    "voice": "am_puck,am_onyx",
+    "voice": "am_puck",
     "speed": 1.1,
 }
 
@@ -106,13 +106,59 @@ async def is_downloaded() -> bool:
     return _pipeline is not None
 
 
+def _parse_blend_voice_string(voice: str) -> list[dict] | None:
+    """Parse blend format strings like '0.7*bf_emma + 0.3*af_nicole'."""
+    if "*" not in voice:
+        return None
+    parts = voice.split("+")
+    blend_voices = []
+    for part in parts:
+        part = part.strip()
+        if "*" not in part:
+            continue
+        weight_str, name = part.split("*", 1)
+        try:
+            weight = float(weight_str.strip())
+        except ValueError:
+            continue
+        name = name.strip()
+        if name and weight > 0:
+            blend_voices.append({"voice": name, "weight": weight})
+    return blend_voices if blend_voices else None
+
+
+def _voices_to_native_blend(blend_voices: list[dict]) -> str:
+    """Convert weighted blend voices to native Kokoro comma-separated format.
+
+    Kokoro's KPipeline accepts comma-separated voice names and blends them
+    internally at the tensor/style level. Voices are repeated proportionally
+    to their weights (e.g. 0.8*A + 0.2*B → A,A,A,A,B).
+    """
+    voice_parts: list[str] = []
+    for item in blend_voices:
+        v = str(item["voice"])
+        w = float(item["weight"])
+        if not v or w <= 0:
+            continue
+        count = max(1, round(w * 5))  # scale factor 5 gives good granularity
+        voice_parts.extend([v] * count)
+    return ",".join(voice_parts) if voice_parts else ""
+
+
 async def synthesize_sentences(
     sentences: list[str], config: dict[str, Any] | None = None
 ) -> str:
     cfg = normalize_config(config or get_config())
+    voice = str(cfg["voice"])
+
+    # Detect blend format and convert to native Kokoro comma-separated voices
+    blend = _parse_blend_voice_string(voice)
+    if blend:
+        voice = _voices_to_native_blend(blend)
+
     return await _synthesize_sentences(
         sentences,
-        voice=str(cfg["voice"]),
+        voice=voice,
         speed=float(cfg["speed"]),
     )
 
